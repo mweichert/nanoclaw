@@ -479,7 +479,7 @@ The `nanoclaw` MCP server is created dynamically per agent call with the current
 
 ## Deployment
 
-NanoClaw runs as a single macOS launchd service.
+NanoClaw runs as a background service — launchd on macOS, systemd on Linux.
 
 ### Startup Sequence
 
@@ -532,7 +532,7 @@ When NanoClaw starts, it:
 </plist>
 ```
 
-### Managing the Service
+### Managing the Service (macOS)
 
 ```bash
 # Install service
@@ -549,6 +549,55 @@ launchctl list | grep nanoclaw
 
 # View logs
 tail -f logs/nanoclaw.log
+```
+
+### Service: nanoclaw.service (Linux)
+
+**systemd/nanoclaw.service:**
+```ini
+[Unit]
+Description=NanoClaw Personal Claude Assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart={{NODE_PATH}} {{PROJECT_ROOT}}/dist/index.js
+WorkingDirectory={{PROJECT_ROOT}}
+Restart=on-failure
+RestartSec=5
+
+Environment=PATH={{HOME}}/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME={{HOME}}
+Environment=ASSISTANT_NAME=Andy
+
+StandardOutput=append:{{PROJECT_ROOT}}/logs/nanoclaw.log
+StandardError=append:{{PROJECT_ROOT}}/logs/nanoclaw.error.log
+
+[Install]
+WantedBy=default.target
+```
+
+### Managing the Service (Linux)
+
+```bash
+# Install service
+mkdir -p ~/.config/systemd/user
+cp systemd/nanoclaw.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+
+# Start service
+systemctl --user enable --now nanoclaw.service
+
+# Stop service
+systemctl --user stop nanoclaw.service
+
+# Check status
+systemctl --user status nanoclaw.service
+
+# View logs
+journalctl --user -u nanoclaw.service -f
+# or: tail -f logs/nanoclaw.log
 ```
 
 ---
@@ -604,7 +653,7 @@ chmod 700 groups/
 
 | Issue | Cause | Solution |
 |-------|-------|----------|
-| No response to messages | Service not running | Check `launchctl list | grep nanoclaw` |
+| No response to messages | Service not running | macOS: `launchctl list | grep nanoclaw` / Linux: `systemctl --user is-active nanoclaw.service` |
 | "Claude Code process exited with code 1" | Apple Container failed to start | Check logs; NanoClaw auto-starts container system but may fail |
 | "Claude Code process exited with code 1" | Session mount path wrong | Ensure mount is to `/home/node/.claude/` not `/root/.claude/` |
 | Session not continuing | Session ID not saved | Check SQLite: `sqlite3 store/messages.db "SELECT * FROM sessions"` |
