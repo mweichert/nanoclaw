@@ -381,7 +381,16 @@ Tell the user:
 > ```
 > The folder appears inside the container at `/workspace/extra/<folder-name>` (derived from the last segment of the path). Add `"readonly": false` for write access, or `"containerPath": "custom-name"` to override the default name.
 
-## 8. Configure launchd Service
+## 8. Configure Background Service
+
+First, detect the platform:
+
+```bash
+PLATFORM=$(uname -s)
+echo "Platform: $PLATFORM"
+```
+
+### If macOS (Darwin)
 
 Generate the plist file with correct paths automatically:
 
@@ -441,6 +450,65 @@ Verify it's running:
 launchctl list | grep nanoclaw
 ```
 
+### If Linux
+
+Generate a systemd user service unit with correct paths automatically:
+
+```bash
+NODE_PATH=$(which node)
+PROJECT_PATH=$(pwd)
+HOME_PATH=$HOME
+
+mkdir -p ~/.config/systemd/user
+
+cat > ~/.config/systemd/user/nanoclaw.service << EOF
+[Unit]
+Description=NanoClaw Personal Claude Assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${NODE_PATH} ${PROJECT_PATH}/dist/index.js
+WorkingDirectory=${PROJECT_PATH}
+Restart=on-failure
+RestartSec=5
+
+Environment=PATH=${HOME_PATH}/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=${HOME_PATH}
+
+StandardOutput=append:${PROJECT_PATH}/logs/nanoclaw.log
+StandardError=append:${PROJECT_PATH}/logs/nanoclaw.error.log
+
+[Install]
+WantedBy=default.target
+EOF
+
+echo "Created systemd user service with:"
+echo "  Node: ${NODE_PATH}"
+echo "  Project: ${PROJECT_PATH}"
+```
+
+Build and start the service:
+
+```bash
+npm run build
+mkdir -p logs
+systemctl --user daemon-reload
+systemctl --user enable nanoclaw.service
+systemctl --user start nanoclaw.service
+```
+
+Verify it's running:
+```bash
+systemctl --user status nanoclaw.service
+```
+
+**Important:** To ensure the service runs even when you're not logged in (e.g., after SSH disconnect or reboot), enable lingering:
+```bash
+loginctl enable-linger $(whoami)
+```
+
 ## 9. Test
 
 Tell the user (using the assistant name they configured):
@@ -472,12 +540,28 @@ The user should receive a response in WhatsApp.
 - Check that the chat JID is in the database: `sqlite3 store/messages.db "SELECT * FROM registered_groups"`
 - Check `logs/nanoclaw.log` for errors
 
-**WhatsApp disconnected**:
-- The service will show a macOS notification
-- Run `npm run auth` to re-authenticate
-- Restart the service: `launchctl kickstart -k gui/$(id -u)/com.nanoclaw`
+**Check if service is running**:
+- macOS: `launchctl list | grep nanoclaw`
+- Linux: `systemctl --user is-active nanoclaw.service`
 
-**Unload service**:
-```bash
-launchctl unload ~/Library/LaunchAgents/com.nanoclaw.plist
-```
+**WhatsApp disconnected**:
+- On macOS, the service will show a notification
+- Run `npm run auth` to re-authenticate
+- Restart the service:
+  - macOS: `launchctl kickstart -k gui/$(id -u)/com.nanoclaw`
+  - Linux: `systemctl --user restart nanoclaw.service`
+
+**Stop/unload service**:
+- macOS:
+  ```bash
+  launchctl unload ~/Library/LaunchAgents/com.nanoclaw.plist
+  ```
+- Linux:
+  ```bash
+  systemctl --user stop nanoclaw.service
+  systemctl --user disable nanoclaw.service
+  ```
+
+**View service logs**:
+- Both platforms: `tail -f logs/nanoclaw.log`
+- Linux (journald): `journalctl --user -u nanoclaw.service -f`
