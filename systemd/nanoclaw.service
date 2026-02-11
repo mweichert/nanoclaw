@@ -1,0 +1,21 @@
+[Unit]
+Description=NanoClaw Personal Claude Assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart={{NODE_PATH}} {{PROJECT_ROOT}}/dist/index.js
+WorkingDirectory={{PROJECT_ROOT}}
+Restart=on-failure
+RestartSec=5
+
+Environment=PATH={{HOME}}/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME={{HOME}}
+Environment=ASSISTANT_NAME=Andy
+
+StandardOutput=append:{{PROJECT_ROOT}}/logs/nanoclaw.log
+StandardError=append:{{PROJECT_ROOT}}/logs/nanoclaw.error.log
+
+[Install]
+WantedBy=default.target
