@@ -41,8 +41,14 @@ npm run build        # Compile TypeScript
 
 Service management:
 ```bash
+# macOS (launchd)
 launchctl load ~/Library/LaunchAgents/com.nanoclaw.plist
 launchctl unload ~/Library/LaunchAgents/com.nanoclaw.plist
+
+# Linux (systemd)
+systemctl --user start nanoclaw.service
+systemctl --user stop nanoclaw.service
+systemctl --user restart nanoclaw.service
 ```
 
 ## Container Build Cache

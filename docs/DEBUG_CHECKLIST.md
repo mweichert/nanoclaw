@@ -15,8 +15,12 @@ Both timers fire at the same time, so containers always exit via hard SIGKILL (c
 
 ```bash
 # 1. Is the service running?
+# macOS:
 launchctl list | grep nanoclaw
 # Expected: PID  0  com.nanoclaw (PID = running, "-" = not running, non-zero exit = crashed)
+# Linux:
+systemctl --user is-active nanoclaw.service
+# Expected: "active"
 
 # 2. Any running containers?
 container ls --format '{{.Names}} {{.Status}}' 2>/dev/null | grep nanoclaw
@@ -125,6 +129,8 @@ npm run auth
 
 ## Service Management
 
+### macOS (launchd)
+
 ```bash
 # Restart the service
 launchctl kickstart -k gui/$(id -u)/com.nanoclaw
@@ -140,4 +146,24 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nanoclaw.plist
 
 # Rebuild after code changes
 npm run build && launchctl kickstart -k gui/$(id -u)/com.nanoclaw
+```
+
+### Linux (systemd)
+
+```bash
+# Restart the service
+systemctl --user restart nanoclaw.service
+
+# View live logs
+journalctl --user -u nanoclaw.service -f
+# or: tail -f logs/nanoclaw.log
+
+# Stop the service (careful — running containers are detached, not killed)
+systemctl --user stop nanoclaw.service
+
+# Start the service
+systemctl --user start nanoclaw.service
+
+# Rebuild after code changes
+npm run build && systemctl --user restart nanoclaw.service
 ```
