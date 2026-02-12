@@ -1,3 +1,47 @@
+import { z } from 'zod';
+
+// NOTE: These types are mirrored in container/agent-runner/src/shared.ts
+// (separate process boundary). Keep both in sync when modifying.
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+
+export type KnownProvider = 'google' | 'openai' | 'anthropic';
+export type Provider = KnownProvider | (string & {});
+
+export type AgentBackend =
+  | { type: 'claude' }
+  | { type: 'pi'; provider?: Provider; model?: string; thinkingLevel?: ThinkingLevel };
+
+// ── Runtime validation (zod) ────────────────────────────────────────────────
+
+const thinkingLevelSchema = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+
+const agentBackendSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('claude') }),
+  z.object({
+    type: z.literal('pi'),
+    provider: z.string().optional(),
+    model: z.string().optional(),
+    thinkingLevel: thinkingLevelSchema.optional(),
+  }),
+]);
+
+/**
+ * Validate and construct an AgentBackend from flat IPC data.
+ * Throws ZodError if the config is invalid (e.g., bad thinkingLevel).
+ */
+export function validateAgentBackend(
+  agentType?: string,
+  agentConfig?: Record<string, unknown>,
+): AgentBackend {
+  if (agentType === 'pi') {
+    return agentBackendSchema.parse({ type: 'pi', ...agentConfig });
+  }
+  if (agentType !== undefined && agentType !== 'claude') {
+    throw new Error(`Unknown agent type: "${agentType}". Valid types: claude, pi`);
+  }
+  return { type: 'claude' };
+}
+
 export interface AdditionalMount {
   hostPath: string; // Absolute path on host (supports ~ for home)
   containerPath?: string; // Optional — defaults to basename of hostPath. Mounted at /workspace/extra/{value}
@@ -39,6 +83,7 @@ export interface RegisteredGroup {
   added_at: string;
   containerConfig?: ContainerConfig;
   requiresTrigger?: boolean; // Default: true for groups, false for solo chats
+  backend: AgentBackend;
 }
 
 export interface NewMessage {
