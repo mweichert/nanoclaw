@@ -248,6 +248,8 @@ Use available_groups.json to find the JID for a group. The folder name should be
     name: z.string().describe('Display name for the group'),
     folder: z.string().describe('Folder name for group files (lowercase, hyphens, e.g., "family-chat")'),
     trigger: z.string().describe('Trigger word (e.g., "@Andy")'),
+    agent_type: z.string().optional().describe('Agent backend type: "claude" (default) or "pi"'),
+    agent_config: z.string().optional().describe('JSON string of backend-specific settings (e.g., {"provider":"openai","model":"gpt-4o"})'),
   },
   async (args) => {
     if (!isMain) {
@@ -257,7 +259,7 @@ Use available_groups.json to find the JID for a group. The folder name should be
       };
     }
 
-    const data = {
+    const data: Record<string, unknown> = {
       type: 'register_group',
       jid: args.jid,
       name: args.name,
@@ -265,6 +267,19 @@ Use available_groups.json to find the JID for a group. The folder name should be
       trigger: args.trigger,
       timestamp: new Date().toISOString(),
     };
+    if (args.agent_type) {
+      data.agentType = args.agent_type;
+    }
+    if (args.agent_config) {
+      try {
+        data.agentConfig = JSON.parse(args.agent_config);
+      } catch {
+        return {
+          content: [{ type: 'text' as const, text: `Invalid agent_config JSON: "${args.agent_config}". Must be valid JSON.` }],
+          isError: true,
+        };
+      }
+    }
 
     writeIpcFile(TASKS_DIR, data);
 

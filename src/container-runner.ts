@@ -18,7 +18,7 @@ import {
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
 import { validateAdditionalMounts } from './mount-security.js';
-import { RegisteredGroup } from './types.js';
+import { AgentBackend, RegisteredGroup } from './types.js';
 
 // Sentinel markers for robust output parsing (must match agent-runner)
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
@@ -42,6 +42,7 @@ export interface ContainerInput {
   isMain: boolean;
   isScheduledTask?: boolean;
   secrets?: Record<string, string>;
+  backend: AgentBackend;
 }
 
 export interface ContainerOutput {
@@ -60,6 +61,7 @@ interface VolumeMount {
 function buildVolumeMounts(
   group: RegisteredGroup,
   isMain: boolean,
+  backend: AgentBackend,
 ): VolumeMount[] {
   const mounts: VolumeMount[] = [];
   const homeDir = getHomeDir();
@@ -147,6 +149,17 @@ function buildVolumeMounts(
     readonly: false,
   });
 
+  // Per-group Pi sessions directory (for Pi agent backend)
+  if (backend.type === 'pi') {
+    const piSessionsDir = path.join(DATA_DIR, 'sessions', group.folder, '.pi');
+    fs.mkdirSync(path.join(piSessionsDir, 'agent', 'sessions'), { recursive: true });
+    mounts.push({
+      hostPath: piSessionsDir,
+      containerPath: '/home/node/.pi',
+      readonly: false,
+    });
+  }
+
   // Per-group IPC namespace: each group gets its own IPC directory
   // This prevents cross-group privilege escalation via IPC
   const groupIpcDir = path.join(DATA_DIR, 'ipc', group.folder);
@@ -158,6 +171,35 @@ function buildVolumeMounts(
     containerPath: '/workspace/ipc',
     readonly: false,
   });
+
+  // Environment file directory for Pi backend (which reads API keys from process.env).
+  // Only expose specific auth variables, not the entire .env
+  if (backend.type === 'pi') {
+    const envDir = path.join(DATA_DIR, 'env');
+    fs.mkdirSync(envDir, { recursive: true });
+    const envFile = path.join(projectRoot, '.env');
+    if (fs.existsSync(envFile)) {
+      const envContent = fs.readFileSync(envFile, 'utf-8');
+      const allowedVars = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY'];
+      const filteredLines = envContent.split('\n').filter((line) => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return false;
+        return allowedVars.some((v) => trimmed.startsWith(`${v}=`));
+      });
+
+      if (filteredLines.length > 0) {
+        fs.writeFileSync(
+          path.join(envDir, 'env'),
+          filteredLines.join('\n') + '\n',
+        );
+        mounts.push({
+          hostPath: envDir,
+          containerPath: '/workspace/env-dir',
+          readonly: true,
+        });
+      }
+    }
+  }
 
   // Mount agent-runner source from host — recompiled on container startup.
   // Bypasses Apple Container's sticky build cache for code changes.
@@ -230,7 +272,7 @@ export async function runContainerAgent(
   const groupDir = path.join(GROUPS_DIR, group.folder);
   fs.mkdirSync(groupDir, { recursive: true });
 
-  const mounts = buildVolumeMounts(group, input.isMain);
+  const mounts = buildVolumeMounts(group, input.isMain, input.backend);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
   const containerArgs = buildContainerArgs(mounts, containerName);

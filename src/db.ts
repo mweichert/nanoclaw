@@ -3,7 +3,27 @@ import fs from 'fs';
 import path from 'path';
 
 import { ASSISTANT_NAME, DATA_DIR, STORE_DIR } from './config.js';
-import { NewMessage, RegisteredGroup, ScheduledTask, TaskRunLog } from './types.js';
+import { AgentBackend, NewMessage, RegisteredGroup, ScheduledTask, TaskRunLog, validateAgentBackend } from './types.js';
+
+function rowToBackend(agentType: string | null, agentConfig: string | null): AgentBackend {
+  if (agentType === 'pi') {
+    try {
+      return validateAgentBackend('pi', agentConfig ? JSON.parse(agentConfig) : undefined);
+    } catch {
+      return { type: 'pi' };
+    }
+  }
+  return { type: 'claude' };
+}
+
+function backendToConfig(backend: AgentBackend): string | null {
+  if (backend.type !== 'pi') return null;
+  const cfg: Record<string, string> = {};
+  if (backend.provider) cfg.provider = backend.provider;
+  if (backend.model) cfg.model = backend.model;
+  if (backend.thinkingLevel) cfg.thinkingLevel = backend.thinkingLevel;
+  return Object.keys(cfg).length > 0 ? JSON.stringify(cfg) : null;
+}
 
 let db: Database.Database;
 
@@ -115,6 +135,14 @@ function createSchema(database: Database.Database): void {
   } catch {
     /* columns already exist */
   }
+
+  // Add agent_type and agent_config columns for multi-agent backend support
+  try {
+    database.exec(`ALTER TABLE registered_groups ADD COLUMN agent_type TEXT DEFAULT 'claude'`);
+  } catch { /* column already exists */ }
+  try {
+    database.exec(`ALTER TABLE registered_groups ADD COLUMN agent_config TEXT`);
+  } catch { /* column already exists */ }
 }
 
 export function initDatabase(): void {
@@ -517,9 +545,12 @@ export function getRegisteredGroup(
         added_at: string;
         container_config: string | null;
         requires_trigger: number | null;
+        agent_type: string | null;
+        agent_config: string | null;
       }
     | undefined;
   if (!row) return undefined;
+  const backend = rowToBackend(row.agent_type, row.agent_config);
   return {
     jid: row.jid,
     name: row.name,
@@ -530,6 +561,7 @@ export function getRegisteredGroup(
       ? JSON.parse(row.container_config)
       : undefined,
     requiresTrigger: row.requires_trigger === null ? undefined : row.requires_trigger === 1,
+    backend,
   };
 }
 
@@ -537,9 +569,11 @@ export function setRegisteredGroup(
   jid: string,
   group: RegisteredGroup,
 ): void {
+  const agentType = group.backend.type;
+  const agentConfig = backendToConfig(group.backend);
   db.prepare(
-    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, agent_type, agent_config)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     jid,
     group.name,
@@ -548,6 +582,8 @@ export function setRegisteredGroup(
     group.added_at,
     group.containerConfig ? JSON.stringify(group.containerConfig) : null,
     group.requiresTrigger === undefined ? 1 : group.requiresTrigger ? 1 : 0,
+    agentType,
+    agentConfig,
   );
 }
 
@@ -562,9 +598,12 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
     added_at: string;
     container_config: string | null;
     requires_trigger: number | null;
+    agent_type: string | null;
+    agent_config: string | null;
   }>;
   const result: Record<string, RegisteredGroup> = {};
   for (const row of rows) {
+    const backend = rowToBackend(row.agent_type, row.agent_config);
     result[row.jid] = {
       name: row.name,
       folder: row.folder,
@@ -574,6 +613,7 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
         ? JSON.parse(row.container_config)
         : undefined,
       requiresTrigger: row.requires_trigger === null ? undefined : row.requires_trigger === 1,
+      backend,
     };
   }
   return result;

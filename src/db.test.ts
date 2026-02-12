@@ -5,9 +5,12 @@ import {
   createTask,
   deleteTask,
   getAllChats,
+  getAllRegisteredGroups,
   getMessagesSince,
   getNewMessages,
+  getRegisteredGroup,
   getTaskById,
+  setRegisteredGroup,
   storeChatMetadata,
   storeMessage,
   updateTask,
@@ -324,5 +327,86 @@ describe('task CRUD', () => {
 
     deleteTask('task-3');
     expect(getTaskById('task-3')).toBeUndefined();
+  });
+});
+
+// --- backend (discriminated union) ---
+
+describe('backend discriminated union in registered groups', () => {
+  it('stores and retrieves pi backend', () => {
+    setRegisteredGroup('pi-group@g.us', {
+      name: 'Pi Group',
+      folder: 'pi-group',
+      trigger: '@Pi',
+      added_at: '2024-01-01T00:00:00.000Z',
+      backend: { type: 'pi' },
+    });
+
+    const group = getRegisteredGroup('pi-group@g.us');
+    expect(group).toBeDefined();
+    expect(group!.backend).toEqual({ type: 'pi' });
+  });
+
+  it('round-trips pi backend config through JSON', () => {
+    setRegisteredGroup('openai-group@g.us', {
+      name: 'OpenAI Group',
+      folder: 'openai-group',
+      trigger: '@GPT',
+      added_at: '2024-01-01T00:00:00.000Z',
+      backend: { type: 'pi', provider: 'openai', model: 'gpt-4o', thinkingLevel: 'high' },
+    });
+
+    const group = getRegisteredGroup('openai-group@g.us');
+    expect(group).toBeDefined();
+    expect(group!.backend).toEqual({ type: 'pi', provider: 'openai', model: 'gpt-4o', thinkingLevel: 'high' });
+  });
+
+  it('defaults backend to claude when not set', () => {
+    setRegisteredGroup('default-group@g.us', {
+      name: 'Default Group',
+      folder: 'default-group',
+      trigger: '@Bot',
+      added_at: '2024-01-01T00:00:00.000Z',
+      backend: { type: 'claude' },
+    });
+
+    const group = getRegisteredGroup('default-group@g.us');
+    expect(group).toBeDefined();
+    expect(group!.backend).toEqual({ type: 'claude' });
+  });
+
+  it('getAllRegisteredGroups returns backend for all groups', () => {
+    setRegisteredGroup('group-a@g.us', {
+      name: 'Group A',
+      folder: 'group-a',
+      trigger: '@A',
+      added_at: '2024-01-01T00:00:00.000Z',
+      backend: { type: 'pi', provider: 'google', model: 'gemini-2.0-flash' },
+    });
+    setRegisteredGroup('group-b@g.us', {
+      name: 'Group B',
+      folder: 'group-b',
+      trigger: '@B',
+      added_at: '2024-01-01T00:00:00.000Z',
+      backend: { type: 'claude' },
+    });
+
+    const all = getAllRegisteredGroups();
+    expect(all['group-a@g.us'].backend).toEqual({ type: 'pi', provider: 'google', model: 'gemini-2.0-flash' });
+    expect(all['group-b@g.us'].backend).toEqual({ type: 'claude' });
+  });
+
+  it('stores pi backend with no optional fields', () => {
+    setRegisteredGroup('minimal-pi@g.us', {
+      name: 'Minimal Pi',
+      folder: 'minimal-pi',
+      trigger: '@MP',
+      added_at: '2024-01-01T00:00:00.000Z',
+      backend: { type: 'pi' },
+    });
+
+    const group = getRegisteredGroup('minimal-pi@g.us');
+    expect(group).toBeDefined();
+    expect(group!.backend).toEqual({ type: 'pi' });
   });
 });

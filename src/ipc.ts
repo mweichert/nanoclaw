@@ -12,7 +12,7 @@ import {
 import { AvailableGroup } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
 import { logger } from './logger.js';
-import { RegisteredGroup } from './types.js';
+import { AgentBackend, RegisteredGroup, validateAgentBackend } from './types.js';
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
@@ -169,6 +169,8 @@ export async function processTaskIpc(
     trigger?: string;
     requiresTrigger?: boolean;
     containerConfig?: RegisteredGroup['containerConfig'];
+    agentType?: string;
+    agentConfig?: Record<string, unknown>;
   },
   sourceGroup: string, // Verified identity from IPC directory
   isMain: boolean, // Verified from directory path
@@ -357,6 +359,13 @@ export async function processTaskIpc(
         break;
       }
       if (data.jid && data.name && data.folder && data.trigger) {
+        let backend: AgentBackend;
+        try {
+          backend = validateAgentBackend(data.agentType, data.agentConfig);
+        } catch (err) {
+          logger.warn({ err, agentType: data.agentType, agentConfig: data.agentConfig }, 'Invalid agent backend config');
+          break;
+        }
         deps.registerGroup(data.jid, {
           name: data.name,
           folder: data.folder,
@@ -364,6 +373,7 @@ export async function processTaskIpc(
           added_at: new Date().toISOString(),
           containerConfig: data.containerConfig,
           requiresTrigger: data.requiresTrigger,
+          backend,
         });
       } else {
         logger.warn(

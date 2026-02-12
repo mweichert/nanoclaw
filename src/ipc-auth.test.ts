@@ -17,6 +17,7 @@ const MAIN_GROUP: RegisteredGroup = {
   folder: 'main',
   trigger: 'always',
   added_at: '2024-01-01T00:00:00.000Z',
+  backend: { type: 'claude' },
 };
 
 const OTHER_GROUP: RegisteredGroup = {
@@ -24,6 +25,7 @@ const OTHER_GROUP: RegisteredGroup = {
   folder: 'other-group',
   trigger: '@Andy',
   added_at: '2024-01-01T00:00:00.000Z',
+  backend: { type: 'claude' },
 };
 
 const THIRD_GROUP: RegisteredGroup = {
@@ -31,6 +33,7 @@ const THIRD_GROUP: RegisteredGroup = {
   folder: 'third-group',
   trigger: '@Andy',
   added_at: '2024-01-01T00:00:00.000Z',
+  backend: { type: 'claude' },
 };
 
 let groups: Record<string, RegisteredGroup>;
@@ -590,5 +593,90 @@ describe('register_group success', () => {
     );
 
     expect(getRegisteredGroup('partial@g.us')).toBeUndefined();
+  });
+});
+
+// --- register_group with backend ---
+
+describe('register_group with backend discriminated union', () => {
+  it('stores pi backend when registering via IPC', async () => {
+    await processTaskIpc(
+      {
+        type: 'register_group',
+        jid: 'pi-group@g.us',
+        name: 'Pi Group',
+        folder: 'pi-group',
+        trigger: '@Pi',
+        agentType: 'pi',
+      },
+      'main',
+      true,
+      deps,
+    );
+
+    const group = getRegisteredGroup('pi-group@g.us');
+    expect(group).toBeDefined();
+    expect(group!.backend).toEqual({ type: 'pi' });
+  });
+
+  it('stores pi backend with config when registering via IPC', async () => {
+    await processTaskIpc(
+      {
+        type: 'register_group',
+        jid: 'gemini-group@g.us',
+        name: 'Gemini Group',
+        folder: 'gemini-group',
+        trigger: '@Gemini',
+        agentType: 'pi',
+        agentConfig: { provider: 'google', model: 'gemini-2.0-flash' },
+      },
+      'main',
+      true,
+      deps,
+    );
+
+    const group = getRegisteredGroup('gemini-group@g.us');
+    expect(group).toBeDefined();
+    expect(group!.backend).toEqual({ type: 'pi', provider: 'google', model: 'gemini-2.0-flash' });
+  });
+
+  it('rejects invalid agentConfig with bad thinkingLevel', async () => {
+    await processTaskIpc(
+      {
+        type: 'register_group',
+        jid: 'bad-config@g.us',
+        name: 'Bad Config',
+        folder: 'bad-config',
+        trigger: '@Bad',
+        agentType: 'pi',
+        agentConfig: { thinkingLevel: 'banana' },
+      },
+      'main',
+      true,
+      deps,
+    );
+
+    // Group should NOT be registered due to invalid config
+    const group = getRegisteredGroup('bad-config@g.us');
+    expect(group).toBeUndefined();
+  });
+
+  it('defaults backend to claude when agentType not provided via IPC', async () => {
+    await processTaskIpc(
+      {
+        type: 'register_group',
+        jid: 'default-agent@g.us',
+        name: 'Default Agent',
+        folder: 'default-agent',
+        trigger: '@Bot',
+      },
+      'main',
+      true,
+      deps,
+    );
+
+    const group = getRegisteredGroup('default-agent@g.us');
+    expect(group).toBeDefined();
+    expect(group!.backend).toEqual({ type: 'claude' });
   });
 });
